@@ -1,0 +1,20 @@
+<resources>
+    <string name="app_name">PowerBalancing</string>
+    <string name="connected">Connected</string>
+    <string name="maximum_total_system_power">Maximum Total System Power: %1$.1fW</string>
+    <string name="remaining_total_system_power">Remaining Total System Power: %1$.1fW</string>
+
+    <string name="va">%1$.1fV @ %2$.1fA</string>
+    <string name="w">%1$.1fW</string>
+
+    <string name="thermal_state_normal">Normal Operation</string>
+    <string name="thermal_state_warning">Thermal Warning</string>
+    <string name="thermal_state_shutdown">Thermal Shutdown</string>
+    <string name="no_device_connected">No Device Connected</string>
+    <string name="port_1">Port 1</string>
+    <string name="thermal_state">Thermal State</string>
+    <string name="connection_power_state">Connection/Power State</string>
+    <string name="available_port_power">Available\nport\npower</string>
+    <string name="title">Microchip Automotive Hub with Power Balancing</string>
+    <string name="port_3">Port 3</string>
+</resources>
