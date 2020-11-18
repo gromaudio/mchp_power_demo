@@ -6,7 +6,8 @@ import androidx.annotation.StringRes;
 enum ThermalState {
     NORMAL(R.string.thermal_state_normal, R.color.green),
     WARNING(R.string.thermal_state_warning, R.color.yellow),
-    SHUTDOWN(R.string.thermal_state_shutdown, R.color.red);
+    SHUTDOWN(R.string.thermal_state_shutdown, R.color.red),
+    NOT_IMPLEMENTED(R.string.thermal_state_not_impl, R.color.grey);
 
     @StringRes
     final private int mTitle;

@@ -4,11 +4,13 @@ class ConnectionPowerState {
         float w;
         float v;
         float a;
+        boolean connected;
 
         public ConnectionPowerState() {
         }
 
-        public ConnectionPowerState(float w, float v, float a) {
+        public ConnectionPowerState(boolean connected, float w, float v, float a) {
+            this.connected = connected;
             this.w = w;
             this.v = v;
             this.a = a;
@@ -37,4 +39,12 @@ class ConnectionPowerState {
         public void setA(float a) {
             this.a = a;
         }
-    }
+
+        public boolean isConnected() {
+            return connected;
+        }
+
+        public void setConnected(boolean connected) {
+            this.connected = connected;
+        }
+}

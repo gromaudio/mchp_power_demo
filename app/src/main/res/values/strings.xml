@@ -10,6 +10,7 @@
     <string name="thermal_state_normal">Normal Operation</string>
     <string name="thermal_state_warning">Thermal Warning</string>
     <string name="thermal_state_shutdown">Thermal Shutdown</string>
+    <string name="thermal_state_not_impl">Not implemented</string>
     <string name="no_device_connected">No Device Connected</string>
     <string name="port_1">Port 1</string>
     <string name="thermal_state">Thermal State</string>

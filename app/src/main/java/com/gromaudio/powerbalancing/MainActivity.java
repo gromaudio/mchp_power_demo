@@ -1,6 +1,9 @@
 package com.gromaudio.powerbalancing;
 
+import android.content.Intent;
+import android.graphics.Color;
 import android.os.Bundle;
+import android.util.Log;
 import android.view.View;
 import android.widget.ImageView;
 import android.widget.ProgressBar;
@@ -16,10 +19,15 @@ import butterknife.BindView;
 import butterknife.ButterKnife;
 import butterknife.OnClick;
 
-public class MainActivity extends AppCompatActivity {
+public class MainActivity extends AppCompatActivity implements HubManager.IHubListener {
+    private static final String TAG = "PB:MainActivity";
+    private static final boolean DEBUG = true;
+
     private static final float MAX_POWER = 60;
     private static final float MAX_TOTAL_POWER = 100;
 
+    @BindView(R.id.textView)
+    TextView mTitle;
     @BindView(R.id.port2_thermal_state)
     TextView mPort2ThermalState;
     @BindView(R.id.port2_no_device_connected)
@@ -60,23 +68,73 @@ public class MainActivity extends AppCompatActivity {
     private ConnectionPowerState mPort1 = new ConnectionPowerState();
     private ConnectionPowerState mPort2 = new ConnectionPowerState();
 
+    private HubManager mHubManager;
+
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
+        if (DEBUG) {
+            Log.d(TAG, "onCreate()");
+        }
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
         ButterKnife.bind(this);
         init();
     }
 
+    @Override
+    protected void onDestroy() {
+        super.onDestroy();
+        if (mHubManager!=null) {
+            mHubManager.close();
+            mHubManager = null;
+        }
+    }
+
+    @Override
+    protected void onNewIntent(Intent intent) {
+        if (DEBUG) {
+            Log.d(TAG, "onNewIntent(" + intent + ")");
+        }
+        super.onNewIntent(intent);
+        if (mHubManager!=null) {
+            mHubManager.stop();
+            mHubManager.update();
+        }
+    }
+
+    @Override
+    protected void onPause() {
+        if (DEBUG) {
+            Log.d(TAG, "onPause()");
+        }
+        super.onPause();
+        if (mHubManager!=null) {
+            mHubManager.stop();
+        }
+    }
+
+    @Override
+    protected void onResume() {
+        if (DEBUG) {
+            Log.d(TAG, "onResume()");
+        }
+        super.onResume();
+        if (mHubManager!=null) {
+            mHubManager.update();
+        }
+    }
+
     void init() {
-        setThermalState(Port.PORT_1, ThermalState.NORMAL);
-        setThermalState(Port.PORT_2, ThermalState.NORMAL);
+        setThermalState(Port.PORT_1, ThermalState.NOT_IMPLEMENTED);
+        setThermalState(Port.PORT_2, ThermalState.NOT_IMPLEMENTED);
         setDisconnected(Port.PORT_1);
         setDisconnected(Port.PORT_2);
 
         mMaximumTotalSystemPower.setText(getString(R.string.maximum_total_system_power, MAX_TOTAL_POWER));
-        mRemainingTotalSystemPower.setText(getString(R.string.maximum_total_system_power, MAX_TOTAL_POWER));
+        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power, MAX_TOTAL_POWER));
+
+        mHubManager = new HubManager(getBaseContext(), this);
     }
 
     void setThermalState(Port port, ThermalState thermalState) {
@@ -86,12 +144,15 @@ public class MainActivity extends AppCompatActivity {
     }
 
     void setDisconnected(Port port) {
-        View hide = port == Port.PORT_1 ? mPort1Connected : mPort2Connected;
-        View show = port == Port.PORT_1 ? mPort1NoDeviceConnected : mPort2NoDeviceConnected;
+        boolean port1 = port == Port.PORT_1;
+        ConnectionPowerState portState = port1 ? mPort1 : mPort2;
+        portState.setConnected(false);
+        View hide = port1 ? mPort1Connected : mPort2Connected;
+        View show = port1 ? mPort1NoDeviceConnected : mPort2NoDeviceConnected;
         hide.setVisibility(View.INVISIBLE);
         show.setVisibility(View.VISIBLE);
         setProgress(port, 0);
-        setThermalState(port, ThermalState.NORMAL);
+        setThermalState(port, ThermalState.NOT_IMPLEMENTED);
     }
 
     void setConnected(Port port, float w, float v, float a) {
@@ -107,6 +168,7 @@ public class MainActivity extends AppCompatActivity {
         portState.setW(w);
         portState.setV(v);
         portState.setA(a);
+        portState.setConnected(true);
 
         portW.setText(getString(R.string.w, w));
         portVA.setText(getString(R.string.va, v, a));
@@ -148,11 +210,47 @@ public class MainActivity extends AppCompatActivity {
         setThermalState(port, ThermalState.class.getEnumConstants()
                 [random.nextInt(ThermalState.class.getEnumConstants().length)]);
 
-        mRemainingTotalSystemPower.setText(getString(R.string.maximum_total_system_power,
+        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power,
                 MAX_TOTAL_POWER - mPort1.getW() - mPort2.getW()));
     }
 
     float randomFloatInRange(float min, float max) {
         return new Random().nextFloat() * (max - min) + min;
     }
+
+    private void updateRemainingPower() {
+        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power,
+                MAX_TOTAL_POWER - (mPort1.isConnected()?mPort1.getW():0) - (mPort2.isConnected()?mPort2.getW():0) ));
+    }
+
+    //IHubListener
+    @Override
+    public void onPortStatus(int port, boolean attached, boolean negotiated, boolean orientation, boolean cap_mismatch,
+                             float allocpower, float voltage, float current, float power, float pwr_cap) {
+        if (DEBUG) {
+            Log.d(TAG, "onPortStatus(" + port + ")");
+        }
+        Port p = (port==1) ? Port.PORT_1 : Port.PORT_2;
+        if (attached) {
+            setConnected(p, allocpower, voltage, current);
+        } else {
+            setDisconnected(p);
+        }
+        updateRemainingPower();
+    }
+
+    @Override
+    public void onHubStatus(int hubStatus) {
+        if (hubStatus == HubManager.HUB_STATUS_DISCONNECTED) {
+            mTitle.setBackgroundColor(Color.parseColor("#FF000000")); //
+            setDisconnected(Port.PORT_1);
+            setDisconnected(Port.PORT_2);
+            updateRemainingPower();
+        } else if (hubStatus == HubManager.HUB_STATUS_CONNECTED) {
+            mTitle.setBackgroundColor(Color.parseColor("#00FF00")); //green
+        } else if (hubStatus == HubManager.HUB_STATUS_ERRORS) {
+            mTitle.setBackgroundColor(Color.parseColor("#FF0000")); //red
+        }
+    }
+
 }
