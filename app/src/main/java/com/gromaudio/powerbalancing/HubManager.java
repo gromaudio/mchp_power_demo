@@ -75,6 +75,8 @@ public class HubManager {
     private Handler mHandler;
     private IHubListener mListener;
 
+    private byte[] mBuff = new byte[1024];
+    private byte[] mBuff2 = new byte[1024]; //for debugging
     private int mControlTransferAttempts = CONTROL_TRANSFER_ATTEMPTS;
 
     public interface IHubListener {
@@ -184,23 +186,41 @@ public class HubManager {
 
     private boolean updateHfcData() {
         int dwAddress = PDPB_BASE_ADDR; //0xBF803000;
-        byte[] buff = new byte[1024];
         int res = mHfcConnection.controlTransfer(
                 USB_DIR_IN | USB_TYPE_VENDOR, //RequestType - 0xC0 (0x80 | 0x40 | 0x00 )
                 CMD_MEMORY_READ,                         //Request - 0x04
                 (dwAddress & 0xFFFF),                    //wValue
                 ((dwAddress & 0xFFFF0000) >> 16),        //wIndex
-                buff,                                    //Data
+                mBuff,                                    //Data
                 PDPB_BLOCK_RD_LEN,                       //wLength  (bytes to read)
                 CTRL_TIMEOUT                             //timeout ms.
                 );
         if (res >= 0) {
             if (DEBUG) {
                 Log.d(TAG, "controlTransfer success: " + res);
-                Log.d(TAG, "controlTransfer data: " + bytesToHex(buff, PDPB_BLOCK_RD_LEN));
+                Log.d(TAG, "controlTransfer data: " + bytesToHex(mBuff, PDPB_BLOCK_RD_LEN));
             }
+
+
+            //test
+            int dwAddress2 = 0xBF80_3000; //length 2
+            int res2 = mHfcConnection.controlTransfer(
+                    USB_DIR_IN | USB_TYPE_VENDOR, //RequestType - 0xC0 (0x80 | 0x40 | 0x00 )
+                    CMD_MEMORY_READ,                         //Request - 0x04
+                    (dwAddress2 & 0xFFFF),                    //wValue
+                    ((dwAddress2 & 0xFFFF0000) >> 16),        //wIndex
+                    mBuff2,                                    //Data
+                    4,                             //wLength  (bytes to read)
+                    CTRL_TIMEOUT                             //timeout ms.
+            );
+            Log.d(TAG, "controlTransfer2 success: " + ((dwAddress2 & 0xFFFF)& 0x0000FFFF) );
+            Log.d(TAG, "controlTransfer2 success: " + (((dwAddress2 & 0xFFFF0000) >> 16) & 0x0000FFFF) );
+            Log.d(TAG, "controlTransfer2 success: " + res2);
+            Log.d(TAG, "controlTransfer2 data: " + bytesToHex(mBuff2, 4));
+
+
             mControlTransferAttempts = CONTROL_TRANSFER_ATTEMPTS;
-            parseHfcData(buff, res);
+            parseHfcData(mBuff, res);
             return true;
         } else {
             Log.e(TAG, "controlTransfer error: " + res + "; "+(--mControlTransferAttempts)+" attempts left.");
