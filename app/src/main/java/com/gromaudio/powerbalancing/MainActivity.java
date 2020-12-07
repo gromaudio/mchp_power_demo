@@ -23,7 +23,6 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     private static final String TAG = "PB:MainActivity";
     private static final boolean DEBUG = true;
 
-    private static final float MAX_POWER = 60;
     private static final float MAX_TOTAL_POWER = 100;
 
     @BindView(R.id.textView)
@@ -67,6 +66,7 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
 
     private ConnectionPowerState mPort1 = new ConnectionPowerState();
     private ConnectionPowerState mPort2 = new ConnectionPowerState();
+    private float mMaxTotalPower = MAX_TOTAL_POWER;
 
     private HubManager mHubManager;
 
@@ -131,8 +131,8 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         setDisconnected(Port.PORT_1);
         setDisconnected(Port.PORT_2);
 
-        mMaximumTotalSystemPower.setText(getString(R.string.maximum_total_system_power, MAX_TOTAL_POWER));
-        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power, MAX_TOTAL_POWER));
+        mMaximumTotalSystemPower.setText(getString(R.string.maximum_total_system_power, mMaxTotalPower));
+        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power, mMaxTotalPower));
 
         mHubManager = new HubManager(getBaseContext(), this);
     }
@@ -151,11 +151,10 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         View show = port1 ? mPort1NoDeviceConnected : mPort2NoDeviceConnected;
         hide.setVisibility(View.INVISIBLE);
         show.setVisibility(View.VISIBLE);
-        setProgress(port, 0);
-        setThermalState(port, ThermalState.NOT_IMPLEMENTED);
+        setProgress(port, 0, portState.getMaxP());
     }
 
-    void setConnected(Port port, float w, float v, float a) {
+    void setConnected(Port port, float w, float v, float a, float maxP) {
         boolean port1 = port == Port.PORT_1;
         ConnectionPowerState portState = port1 ? mPort1 : mPort2;
         TextView portW = port1 ? mPort1ConnectedW : mPort2ConnectedW;
@@ -168,6 +167,7 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         portState.setW(w);
         portState.setV(v);
         portState.setA(a);
+        portState.setMaxP(maxP);
         portState.setConnected(true);
 
         portW.setText(getString(R.string.w, w));
@@ -180,15 +180,16 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
             speed = Speed.AVERAGE;
 
         Glide.with(this).asGif().load(port1 ? speed.getLeft() : speed.getRight()).into(icon);
-        setProgress(port, w);
+        setProgress(port, w, portState.getMaxP());
     }
 
-    void setProgress(Port port, float w) {
+    void setProgress(Port port, float w, float maxP) {
         boolean port1 = port == Port.PORT_1;
         ProgressBar portProgress = port1 ? mPort1Progress : mPort2Progress;
+        portProgress.setMax((int)maxP);
         portProgress.setProgress((int) w);
         TextView powerRemaining = port1 ? mPort1AvailablePortPower : mPort2AvailablePortPower;
-        powerRemaining.setText(getString(R.string.w, MAX_POWER - w));
+        powerRemaining.setText(getString(R.string.w, maxP - w));
     }
 
     @OnClick(R.id.logo)
@@ -206,12 +207,13 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         }
 
         setConnected(port, randomFloatInRange(0, 60), randomFloatInRange(0, 12),
-                randomFloatInRange(0, 5));
+                randomFloatInRange(0, 5), 60);
         setThermalState(port, ThermalState.class.getEnumConstants()
                 [random.nextInt(ThermalState.class.getEnumConstants().length)]);
 
+        mMaximumTotalSystemPower.setText(getString(R.string.maximum_total_system_power, mMaxTotalPower));
         mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power,
-                MAX_TOTAL_POWER - mPort1.getW() - mPort2.getW()));
+                mMaxTotalPower - mPort1.getW() - mPort2.getW()));
     }
 
     float randomFloatInRange(float min, float max) {
@@ -219,22 +221,26 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     }
 
     private void updateRemainingPower() {
+        mMaximumTotalSystemPower.setText(getString(R.string.maximum_total_system_power, mMaxTotalPower));
         mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power,
-                MAX_TOTAL_POWER - (mPort1.isConnected()?mPort1.getW():0) - (mPort2.isConnected()?mPort2.getW():0) ));
+                mMaxTotalPower - (mPort1.isConnected()?mPort1.getW():0) - (mPort2.isConnected()?mPort2.getW():0) ));
     }
 
     //IHubListener
     @Override
     public void onPortStatus(int port, boolean attached, boolean negotiated, boolean orientation, boolean cap_mismatch,
-                             float allocpower, float voltage, float current, float power, float pwr_cap) {
+                             float maxpower, float voltage, float current, float power, float sys_pwr, ThermalState ts) {
         if (DEBUG) {
             Log.d(TAG, "onPortStatus(" + port + ")");
         }
+        mMaxTotalPower = sys_pwr;
         Port p = (port==1) ? Port.PORT_1 : Port.PORT_2;
         if (attached) {
-            setConnected(p, allocpower, voltage, current);
+            setConnected(p, power, voltage, current, maxpower);
+            setThermalState(p, ts);
         } else {
             setDisconnected(p);
+            setThermalState(p, ts);
         }
         updateRemainingPower();
     }
@@ -245,6 +251,8 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
             mTitle.setBackgroundColor(Color.parseColor("#FF000000")); //
             setDisconnected(Port.PORT_1);
             setDisconnected(Port.PORT_2);
+            setThermalState(Port.PORT_1, ThermalState.NOT_IMPLEMENTED);
+            setThermalState(Port.PORT_2, ThermalState.NOT_IMPLEMENTED);
             updateRemainingPower();
         } else if (hubStatus == HubManager.HUB_STATUS_CONNECTED) {
             mTitle.setBackgroundColor(Color.parseColor("#00FF00")); //green

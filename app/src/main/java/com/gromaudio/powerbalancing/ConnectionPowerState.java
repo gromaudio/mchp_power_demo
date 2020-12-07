@@ -1,50 +1,60 @@
 package com.gromaudio.powerbalancing;
 
 class ConnectionPowerState {
-        float w;
-        float v;
-        float a;
-        boolean connected;
+    static final float MAX_POWER = 60;
+    float w;
+    float v;
+    float a;
+    float maxP = MAX_POWER;
+    boolean connected;
 
-        public ConnectionPowerState() {
-        }
+    public ConnectionPowerState() {
+    }
 
-        public ConnectionPowerState(boolean connected, float w, float v, float a) {
-            this.connected = connected;
-            this.w = w;
-            this.v = v;
-            this.a = a;
-        }
+    public ConnectionPowerState(boolean connected, float w, float v, float a) {
+        this.connected = connected;
+        this.w = w;
+        this.v = v;
+        this.a = a;
+    }
 
-        public float getW() {
-            return w;
-        }
+    public float getMaxP() {
+        return maxP;
+    }
 
-        public void setW(float w) {
-            this.w = w;
-        }
+    public void setMaxP(float p) {
+        this.maxP = p;
+    }
 
-        public float getV() {
-            return v;
-        }
+    public float getW() {
+        return w;
+    }
 
-        public void setV(float v) {
-            this.v = v;
-        }
+    public void setW(float w) {
+        this.w = w;
+    }
 
-        public float getA() {
-            return a;
-        }
+    public float getV() {
+        return v;
+    }
 
-        public void setA(float a) {
-            this.a = a;
-        }
+    public void setV(float v) {
+        this.v = v;
+    }
 
-        public boolean isConnected() {
-            return connected;
-        }
+    public float getA() {
+        return a;
+    }
 
-        public void setConnected(boolean connected) {
-            this.connected = connected;
-        }
+    public void setA(float a) {
+        this.a = a;
+    }
+
+    public boolean isConnected() {
+        return connected;
+    }
+
+    public void setConnected(boolean connected) {
+        this.connected = connected;
+    }
 }

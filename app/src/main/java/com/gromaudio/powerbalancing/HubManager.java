@@ -12,6 +12,7 @@ import android.os.Handler;
 import android.util.Log;
 
 import java.nio.ByteBuffer;
+import java.nio.ByteOrder;
 import java.util.HashMap;
 import java.util.Map;
 
@@ -23,7 +24,6 @@ public class HubManager {
     private static final String TAG = "PB:HubManager";
     private static final boolean DEBUG = true;
     private static final boolean DEBUG_V = DEBUG && true;
-    private static final boolean DEBUG_EMULATE_DATA = false;
 
     public static final int HUB_STATUS_DISCONNECTED = 0;
     public static final int HUB_STATUS_CONNECTED = 1;
@@ -34,31 +34,24 @@ public class HubManager {
     private static final int HFC_VID = 0x0424; // (hfc 0x0424); // (mouse 0x046d)
     private static final int HFC_PID = 0x49a0; // (hfc 0x49a0); // (mouse 0xc534)
 
-    private static final int PDPB_BASE_ADDR = 0xBFD245AC;  // address to first byte of PDPB status registers
-    private static final int PDPB_BLOCK_RD_LEN = 24;  // 24 bytes defined in PDPB register spec
+    static final int PDPB_P1_THERMAL_PORT_STATUS = 0xBFD9_7444; //2 Bytes (THERMAL_STATE)
+    static final int PDPB_P3_THERMAL_PORT_STATUS = 0xBFD9_73DC; //2 Bytes (THERMAL_STATE)
+    static final int PDPB_P1_PORT_PARAMS = 0xBFD9_7BC0; // 00=xx (Offset = 0x04) 8 Bytes (7BC0)
+    static final int PDPB_P3_PORT_PARAMS = 0xBFD9_7D74; // 00=xx (Offset = 0x04) 8 Bytes (7D74)
+    static final int PDPB_P1_PORT_POWER_ALLOCATION = 0xBFD9_7E28; //4 Bytes (PB enabled/disabled, port MAX power)
+    static final int PDPB_P3_PORT_POWER_ALLOCATION = 0xBFD9_7E6C; //4 Bytes (PB enabled/disabled, port MAX power)
+    static final int PDPB_P1_PB_SYS_CONFIG = 0xBFD9_7DE4; //4 Bytes (Total system power)
 
-    //RawData indexes
-    private static final int IND_SYS_MAX_P = 0x00;
-    private static final int IND_GUAR_MIN_P = 0x02;
-    private static final int IND_P1_MAX_P = 0x04;
-    private static final int IND_P2_MAX_P = 0x06;
-    private static final int IND_P1_STATUS = 0x08;
-    private static final int IND_P2_STATUS = 0x09;
-    private static final int IND_SHARED_P_CAP = 0x0A;
-    private static final int IND_P1_ALLOC_P = 0x0C;
-    private static final int IND_P1_NEGOT_V = 0x0E;
-    private static final int IND_P1_NEGOT_I = 0x10;
-    private static final int IND_P2_ALLOC_P = 0x12;
-    private static final int IND_P2_NEGOT_V = 0x14;
-    private static final int IND_P2_NEGOT_I = 0x16;
+    class PortBuffers {
+        byte[] mPortStatusBuff = new byte[32];
+        byte[] mPortParamsBuff = new byte[32];
+        byte[] mPortPowerBuff = new byte[32];
+    };
 
-    private static final float WATTS_K = 0.25f;
+    private static final float SYS_WATTS_K = 1000.0f;
+    private static final float PORT_WATTS_K = 0.5f;
     private static final float VOLTS_K = 0.05f;
     private static final float AMPS_K = 0.01f;
-
-    // 0010 A0E9 20ED 44C8
-    // 9C FC F483 8D6E C00C
-    // E9F7 0477 E030 0200
 
     //Usb ControlTransfer request codes
     private static final int CMD_MEMORY_READ = 0x04;
@@ -75,13 +68,15 @@ public class HubManager {
     private Handler mHandler;
     private IHubListener mListener;
 
-    private byte[] mBuff = new byte[1024];
-    private byte[] mBuff2 = new byte[1024]; //for debugging
+    private PortBuffers mP1Buffs = new PortBuffers();
+    private PortBuffers mP3Buffs = new PortBuffers();
+    private byte[] mSysConfBuff = new byte[32];
+
     private int mControlTransferAttempts = CONTROL_TRANSFER_ATTEMPTS;
 
     public interface IHubListener {
         void onPortStatus(int port, boolean attached, boolean negotiated, boolean orientation, boolean cap_mismatch,
-                          float allocpower, float voltage, float current, float power, float pwr_cap);
+                          float maxpower, float voltage, float current, float power, float sys_pwr, ThermalState ts);
         void onHubStatus(int hubStatus);
     }
 
@@ -184,69 +179,59 @@ public class HubManager {
         }
     };
 
-    private boolean updateHfcData() {
-        int dwAddress = PDPB_BASE_ADDR; //0xBF803000;
+    private boolean getHfcData(int addr, int size, byte[] resData) {
         int res = mHfcConnection.controlTransfer(
                 USB_DIR_IN | USB_TYPE_VENDOR, //RequestType - 0xC0 (0x80 | 0x40 | 0x00 )
                 CMD_MEMORY_READ,                         //Request - 0x04
-                (dwAddress & 0xFFFF),                    //wValue
-                ((dwAddress & 0xFFFF0000) >> 16),        //wIndex
-                mBuff,                                    //Data
-                PDPB_BLOCK_RD_LEN,                       //wLength  (bytes to read)
+                (addr & 0xFFFF),                         //wValue
+                ((addr & 0xFFFF0000) >> 16),             //wIndex
+                resData,                                 //Data
+                size,                                    //wLength  (bytes to read)
                 CTRL_TIMEOUT                             //timeout ms.
-                );
+        );
         if (res >= 0) {
             if (DEBUG) {
-                Log.d(TAG, "controlTransfer success: " + res);
-                Log.d(TAG, "controlTransfer data: " + bytesToHex(mBuff, PDPB_BLOCK_RD_LEN));
+                Log.d(TAG, "controlTransfer success (" + res + "): " + bytesToHex(resData, size));
             }
+            return true;
+        }
+        Log.e(TAG, "controlTransfer error: res=" + res);
+        return false;
+    }
 
+    private boolean updateHfcData() {
+        boolean res = getHfcData(PDPB_P1_THERMAL_PORT_STATUS, 2, mP1Buffs.mPortStatusBuff);
+        if (res) {
+            res = getHfcData(PDPB_P3_THERMAL_PORT_STATUS, 2, mP3Buffs.mPortStatusBuff);
+        }
+        if (res) {
+            res = getHfcData(PDPB_P1_PORT_PARAMS, 8, mP1Buffs.mPortParamsBuff);
+        }
+        if (res) {
+            res = getHfcData(PDPB_P3_PORT_PARAMS, 8, mP3Buffs.mPortParamsBuff);
+        }
+        if (res) {
+            res = getHfcData(PDPB_P1_PORT_POWER_ALLOCATION, 4, mP1Buffs.mPortPowerBuff);
+        }
+        if (res) {
+            res = getHfcData(PDPB_P3_PORT_POWER_ALLOCATION, 4, mP3Buffs.mPortPowerBuff);
+        }
+        if (res) {
+            res = getHfcData(PDPB_P1_PB_SYS_CONFIG, 4, mSysConfBuff);
+        }
 
-            //test
-            int dwAddress2 = 0xBF80_3000; //length 2
-            int res2 = mHfcConnection.controlTransfer(
-                    USB_DIR_IN | USB_TYPE_VENDOR, //RequestType - 0xC0 (0x80 | 0x40 | 0x00 )
-                    CMD_MEMORY_READ,                         //Request - 0x04
-                    (dwAddress2 & 0xFFFF),                    //wValue
-                    ((dwAddress2 & 0xFFFF0000) >> 16),        //wIndex
-                    mBuff2,                                    //Data
-                    4,                             //wLength  (bytes to read)
-                    CTRL_TIMEOUT                             //timeout ms.
-            );
-            Log.d(TAG, "controlTransfer2 success: " + ((dwAddress2 & 0xFFFF)& 0x0000FFFF) );
-            Log.d(TAG, "controlTransfer2 success: " + (((dwAddress2 & 0xFFFF0000) >> 16) & 0x0000FFFF) );
-            Log.d(TAG, "controlTransfer2 success: " + res2);
-            Log.d(TAG, "controlTransfer2 data: " + bytesToHex(mBuff2, 4));
-
-
+        if (res) {
+            if (DEBUG) {
+                Log.d(TAG, "updateHfcData() success.");
+            }
             mControlTransferAttempts = CONTROL_TRANSFER_ATTEMPTS;
-            parseHfcData(mBuff, res);
+            parseHfcData(mSysConfBuff, mP1Buffs, mP3Buffs);
             return true;
         } else {
-            Log.e(TAG, "controlTransfer error: " + res + "; "+(--mControlTransferAttempts)+" attempts left.");
+            Log.e(TAG, "updateHfcData() error: "+(--mControlTransferAttempts)+" attempts left.");
             if (mListener!=null) {
                 mListener.onHubStatus(HUB_STATUS_ERRORS);
             }
-
-            //emulate data for debugging
-            //0010A0E920ED44C89CFCF4838D6EC00CE9F70477E0300200
-            if (DEBUG_EMULATE_DATA) {
-                byte[] emulated = {
-                        (byte)0x00,(byte)0x10,(byte)0xA0,(byte)0xE9,(byte)0x20,(byte)0xED,(byte)0x44,(byte)0xC8,
-                        (byte)0x01,(byte)0x01/*(byte)0x9C,(byte)0xFC*/,(byte)0xF4,(byte)0x83,(byte)0x8D,(byte)0x6E,(byte)0xC0,(byte)0x0C,
-                        (byte)0xE9,(byte)0xF7,(byte)0x04,(byte)0x77,(byte)0xE0,(byte)0x30,(byte)0x02,(byte)0x00};
-                /*byte[] emulated = {
-                        0,1,2,3,4,5,6,7,
-                        0,1,2,3,4,5,6,7,
-                        0,1, 0x00,(byte)0xC8, 4,5,6,7,
-                    };*/
-                if (DEBUG) {
-                    Log.d(TAG, "Emulated data: " + bytesToHex(emulated, PDPB_BLOCK_RD_LEN));
-                }
-                parseHfcData(emulated, PDPB_BLOCK_RD_LEN);
-                return true;
-            }
-
             if (mControlTransferAttempts > 0) {
                 return true;
             }
@@ -254,26 +239,57 @@ public class HubManager {
         }
     }
 
-    private void parseHfcData(byte[] data, int len) {
-        byte raw_status_now1 = data[IND_P1_STATUS];
-        byte raw_status_now2 = data[IND_P2_STATUS];
-        boolean attached1 = ((raw_status_now1 & 0x01) == 0x01);
-        boolean attached2 = ((raw_status_now2 & 0x01) == 0x01);
-        boolean cap_mismatch1 = ((raw_status_now1 & 0x20) == 0x20);
-        boolean cap_mismatch2 = ((raw_status_now2 & 0x20) == 0x20);
-        boolean orientation1 = ((raw_status_now1 & 0x02) == 0x02);
-        boolean orientation2 = ((raw_status_now2 & 0x02) == 0x02);
-        boolean negotiated1 = ((raw_status_now1 & 0x10) == 0x10);
-        boolean negotiated2 = ((raw_status_now2 & 0x10) == 0x10);
+    private ThermalState parseThermalHfcData(byte[] data) {
+        ThermalState st = ThermalState.NOT_IMPLEMENTED;
+        switch (data[0]&0x03) {
+            case 0x00:
+                st = ThermalState.NORMAL;
+                break;
+            case 0x01:
+                st = ThermalState.WARNING;
+                break;
+            case 0x02:
+                st = ThermalState.SHUTDOWN;
+                break;
+        }
+        return st;
+    }
 
-        ByteBuffer bb = ByteBuffer.wrap(data);
-        int alloc_pwr_now1 = (0xFFFF & bb.getShort(IND_P1_ALLOC_P)); // 0.25W/250mW units
-        int alloc_pwr_now2 = (0xFFFF & bb.getShort(IND_P2_ALLOC_P)); // 0.25W/250mW units
-        int negot_v_now1 = (0xFFFF & bb.getShort(IND_P1_NEGOT_V)); // 0.05V/50mV units
-        int negot_v_now2 = (0xFFFF & bb.getShort(IND_P2_NEGOT_V)); // 0.05V/50mV units
-        int negot_i_now1 = (0xFFFF & bb.getShort(IND_P1_NEGOT_I)); // 0.01A/10mA units
-        int negot_i_now2 = (0xFFFF & bb.getShort(IND_P2_NEGOT_I)); // 0.01A/10mA units
-        int shared_pwr_cap = (0xFFFF & bb.getShort(IND_SHARED_P_CAP)); // 0.25W/250mW units
+    private void parseHfcData(byte[] sysConfBuff, PortBuffers p1, PortBuffers p2) {
+        //ThermalStatus
+        ThermalState ts1 = parseThermalHfcData(p1.mPortStatusBuff);
+        ThermalState ts2 = parseThermalHfcData(p2.mPortStatusBuff);
+
+        //parse params
+        boolean attached1 = ((p1.mPortParamsBuff[0] & 0x01) == 0x01);
+        boolean attached2 = ((p2.mPortParamsBuff[0] & 0x01) == 0x01);
+        boolean orientation1 = ((p1.mPortParamsBuff[0] & 0x02) == 0x02);
+        boolean orientation2 = ((p2.mPortParamsBuff[0] & 0x02) == 0x02);
+        boolean negotiated1 = ((p1.mPortParamsBuff[0] & 0x10) == 0x10);
+        boolean negotiated2 = ((p2.mPortParamsBuff[0] & 0x10) == 0x10);
+        boolean cap_mismatch1 = ((p1.mPortParamsBuff[0] & 0x20) == 0x20);
+        boolean cap_mismatch2 = ((p2.mPortParamsBuff[0] & 0x20) == 0x20);
+
+        ByteBuffer bb1 = ByteBuffer.wrap(p1.mPortParamsBuff).order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer bb2 = ByteBuffer.wrap(p2.mPortParamsBuff).order(ByteOrder.LITTLE_ENDIAN);
+        //V_NEGOTIATED (15:6 bits)
+        int negot_v_now1 = ((0xFFC0 & bb1.getShort(0)) >> 6); // 0.05V/50mV units
+        int negot_v_now2 = ((0xFFC0 & bb2.getShort(0)) >> 6); // 0.05V/50mV units
+        //I_NEGOTIATED (25:16 bits)
+        int negot_i_now1 = (0x03FF & bb1.getShort(2)); // 0.01V/10mA units
+        int negot_i_now2 = (0x03FF & bb2.getShort(2)); // 0.01V/10mA units
+
+        //Max system power
+        ByteBuffer sc = ByteBuffer.wrap(sysConfBuff).order(ByteOrder.LITTLE_ENDIAN);
+        int sys_pwr = (0x00FFFFFF & sc.getInt()); // The max shared power capacity (in mW)
+
+        //Max ports power
+        ByteBuffer pp1 = ByteBuffer.wrap(p1.mPortPowerBuff).order(ByteOrder.LITTLE_ENDIAN);
+        ByteBuffer pp2 = ByteBuffer.wrap(p2.mPortPowerBuff).order(ByteOrder.LITTLE_ENDIAN);
+        int max_pwr1 = (0x03FF & pp1.getShort(0)); // 0.5W/500mW units
+        int max_pwr2 = (0x03FF & pp2.getShort(0)); // 0.5W/500mW units
+        boolean pb_enabled1 = ((p1.mPortPowerBuff[3] & 0x08) == 0x08);
+        boolean pb_enabled2 = ((p2.mPortPowerBuff[3] & 0x08) == 0x08);
 
         /**
          * Fixes.
@@ -295,44 +311,51 @@ public class HubManager {
 
         if (mListener!=null) {
             mListener.onPortStatus(1, attached1, negotiated1, orientation1, cap_mismatch1,
-                    (float)(alloc_pwr_now1*WATTS_K),
+                    (float)(max_pwr1*PORT_WATTS_K),
                     (float)(negot_v_now1*VOLTS_K),
                     (float)(negot_i_now1*AMPS_K),
                     (float)((negot_v_now1*VOLTS_K)*(negot_i_now1*AMPS_K)),
-                    (float)(shared_pwr_cap*WATTS_K) );
+                    (float)(sys_pwr/SYS_WATTS_K),
+                    ts1);
             mListener.onPortStatus(2, attached2, negotiated2, orientation2, cap_mismatch2,
-                    (float)(alloc_pwr_now2*WATTS_K),
+                    (float)(max_pwr2*PORT_WATTS_K),
                     (float)(negot_v_now2*VOLTS_K),
                     (float)(negot_i_now2*AMPS_K),
                     (float)((negot_v_now2*VOLTS_K)*(negot_i_now2*AMPS_K)),
-                    (float)(shared_pwr_cap*WATTS_K) );
+                    (float)(sys_pwr/SYS_WATTS_K),
+                    ts2);
         }
         if (DEBUG_V) {
+            Log.d(TAG, "----------------------------------------");
+            Log.d(TAG, String.format("SYS: sys_pwr=%f W", sys_pwr/SYS_WATTS_K));
             //Log Port1
             Log.d(TAG, "----------------------------------------");
-            Log.d(TAG, String.format("Port1: allocpower=%f", alloc_pwr_now1*WATTS_K));
+            Log.d(TAG, String.format("Port1: max_pwr=%f W", max_pwr1*PORT_WATTS_K));
+            Log.d(TAG, String.format("Port1: pb_enabled=%s", pb_enabled1));
             Log.d(TAG, String.format("Port1: voltage=%f", negot_v_now1*VOLTS_K));
             Log.d(TAG, String.format("Port1: current=%f", negot_i_now1*AMPS_K));
             Log.d(TAG, String.format("Port1: power=%f", (negot_v_now1*VOLTS_K) * (negot_i_now1*AMPS_K)));
-            Log.d(TAG, String.format("Port1: shared_pwr_cap=%f", shared_pwr_cap*WATTS_K));
             Log.d(TAG, String.format("Port1: attached=%s", attached1));
             Log.d(TAG, String.format("Port1: negotiated=%s", negotiated1));
             Log.d(TAG, String.format("Port1: orientation=%s", orientation1));
             Log.d(TAG, String.format("Port1: cap_mismatch=%s", cap_mismatch1));
+            Log.d(TAG, String.format("Port1: ThermalState=%s", ts1));
             //Log Port2
             Log.d(TAG, "----------------------------------------");
-            Log.d(TAG, String.format("Port2: allocpower=%f", alloc_pwr_now2*WATTS_K));
-            Log.d(TAG, String.format("Port2: voltage=%f", negot_v_now2*VOLTS_K));
-            Log.d(TAG, String.format("Port2: current=%f", negot_i_now2*AMPS_K));
-            Log.d(TAG, String.format("Port2: power=%f", (negot_v_now2*VOLTS_K) * (negot_i_now2*AMPS_K)));
-            Log.d(TAG, String.format("Port2: shared_pwr_cap=%f", shared_pwr_cap*WATTS_K));
-            Log.d(TAG, String.format("Port2: attached=%s", attached2));
-            Log.d(TAG, String.format("Port2: negotiated=%s", negotiated2));
-            Log.d(TAG, String.format("Port2: orientation=%s", orientation2));
-            Log.d(TAG, String.format("Port2: cap_mismatch=%s", cap_mismatch2));
+            Log.d(TAG, String.format("Port3: max_pwr=%f W", max_pwr2*PORT_WATTS_K));
+            Log.d(TAG, String.format("Port3: pb_enabled=%s", pb_enabled2));
+            Log.d(TAG, String.format("Port3: voltage=%f", negot_v_now2*VOLTS_K));
+            Log.d(TAG, String.format("Port3: current=%f", negot_i_now2*AMPS_K));
+            Log.d(TAG, String.format("Port3: power=%f", (negot_v_now2*VOLTS_K) * (negot_i_now2*AMPS_K)));
+            Log.d(TAG, String.format("Port3: attached=%s", attached2));
+            Log.d(TAG, String.format("Port3: negotiated=%s", negotiated2));
+            Log.d(TAG, String.format("Port3: orientation=%s", orientation2));
+            Log.d(TAG, String.format("Port3: cap_mismatch=%s", cap_mismatch2));
+            Log.d(TAG, String.format("Port3: ThermalState=%s", ts2));
             Log.d(TAG, "----------------------------------------");
         }
     }
+
 
     private final BroadcastReceiver mUsbReceiver = new BroadcastReceiver() {
         public void onReceive(Context context, Intent intent) {
