@@ -35,7 +35,7 @@ public class HubManager {
     private static final int HFC_PID = 0x49a0; // (hfc 0x49a0); // (mouse 0xc534)
 
     static final int PDPB_P1_THERMAL_PORT_STATUS = 0xBFD9_7444; //2 Bytes (THERMAL_STATE)
-    static final int PDPB_P3_THERMAL_PORT_STATUS = 0xBFD9_73DC; //2 Bytes (THERMAL_STATE)
+    static final int PDPB_P3_THERMAL_PORT_STATUS = 0xBFD9_74DC; //2 Bytes (THERMAL_STATE)
     static final int PDPB_P1_PORT_PARAMS = 0xBFD9_7BC0; // 00=xx (Offset = 0x04) 8 Bytes (7BC0)
     static final int PDPB_P3_PORT_PARAMS = 0xBFD9_7D74; // 00=xx (Offset = 0x04) 8 Bytes (7D74)
     static final int PDPB_P1_PORT_POWER_ALLOCATION = 0xBFD9_7E28; //4 Bytes (PB enabled/disabled, port MAX power)
