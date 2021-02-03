@@ -186,7 +186,7 @@
 
 
     <TextView
-        android:id="@+id/textView14"
+        android:id="@+id/port2_max_power"
         style="@style/TextAppearance.AppCompat.Subhead"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -465,7 +465,7 @@
         tools:text="Thermal shutDown" />
 
     <TextView
-        android:id="@+id/textView13"
+        android:id="@+id/port1_max_power"
         style="@style/TextAppearance.AppCompat.Subhead"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"

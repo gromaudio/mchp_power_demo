@@ -31,8 +31,17 @@ public class HubManager {
 
     private static final String ACTION_USB_PERMISSION = "com.gromaudio.powerbalancing.USB_PERMISSION";
 
-    private static final int HFC_VID = 0x0424; // (hfc 0x0424); // (mouse 0x046d)
-    private static final int HFC_PID = 0x49a0; // (hfc 0x49a0); // (mouse 0xc534)
+    //Lookup table.
+    class HubId {
+        HubId(int vid, int pid) {VID=vid; PID=pid;}
+        int VID;
+        int PID;
+    };
+    //Don't forget to add the new VID:PID to "res/xml/device_filter.xml" as well.
+    private HubId[] mLookupTable = { new HubId(0x0424,0x49a0),
+                                     new HubId(0x046d,0xc534), //just for debugging
+                                   };
+
 
     static final int PDPB_P1_THERMAL_PORT_STATUS = 0xBFD9_7444; //2 Bytes (THERMAL_STATE)
     static final int PDPB_P3_THERMAL_PORT_STATUS = 0xBFD9_74DC; //2 Bytes (THERMAL_STATE)
@@ -40,7 +49,7 @@ public class HubManager {
     static final int PDPB_P3_PORT_PARAMS = 0xBFD9_7D74; // 00=xx (Offset = 0x04) 8 Bytes (7D74)
     static final int PDPB_P1_PORT_POWER_ALLOCATION = 0xBFD9_7E28; //4 Bytes (PB enabled/disabled, port MAX power)
     static final int PDPB_P3_PORT_POWER_ALLOCATION = 0xBFD9_7E6C; //4 Bytes (PB enabled/disabled, port MAX power)
-    static final int PDPB_P1_PB_SYS_CONFIG = 0xBFD9_7DE4; //4 Bytes (Total system power)
+    static final int PDPB_PB_SYS_CONFIG = 0xBFD9_7DE4; //4 Bytes (Total system power)
 
     class PortBuffers {
         byte[] mPortStatusBuff = new byte[32];
@@ -51,7 +60,12 @@ public class HubManager {
     private static final float SYS_WATTS_K = 1000.0f;
     private static final float PORT_WATTS_K = 0.5f;
     private static final float VOLTS_K = 0.05f;
-    private static final float AMPS_K = 0.01f;
+    private static final float VOLTS_OPERATE_K = 0.02f;
+    //*0.5f (Connor: The current reading is off. It is twice would it should be. Just divide the current current reading by 2.)
+    private static final float AMPS_K = 0.01f *0.5f;
+
+    private static final float DEFAULT_V = 5.0f; // 5.0V
+    private static final float DEFAULT_I = 3.0f; // 3.0A
 
     //Usb ControlTransfer request codes
     private static final int CMD_MEMORY_READ = 0x04;
@@ -126,13 +140,15 @@ public class HubManager {
             if (dev != null) {
                 int vid = dev.getVendorId();
                 int pid = dev.getProductId();
-                if (vid==HFC_VID && pid==HFC_PID) {
-                    //Request permissions
-                    PendingIntent permissionIntent = PendingIntent.getBroadcast(mContext, 0, new Intent(ACTION_USB_PERMISSION), 0);
-                    mUsbManager.requestPermission(dev, permissionIntent);
-                    Log.d(TAG, "Found HFC and request permissions for: " + entry.getKey() + " ("+vid+":"+pid+")");
-                } else {
-                    Log.d(TAG, "Found UsbDevice: " + entry.getKey() + " ("+vid+":"+pid+")");
+                Log.d(TAG, String.format("Found UsbDevice: %s (%04x:%04x)", entry.getKey(), vid,pid));
+                for (int a=0; a < mLookupTable.length; ++a) {
+                    if (vid==mLookupTable[a].VID && pid==mLookupTable[a].PID) {
+                        //Request permissions
+                        PendingIntent permissionIntent = PendingIntent.getBroadcast(mContext, 0, new Intent(ACTION_USB_PERMISSION), 0);
+                        mUsbManager.requestPermission(dev, permissionIntent);
+                        Log.d(TAG, String.format("Found HFC and request permissions for: %s (%04x:%04x)", entry.getKey(), vid,pid));
+                        break;
+                    }
                 }
             }
         }
@@ -179,7 +195,7 @@ public class HubManager {
         }
     };
 
-    private boolean getHfcData(int addr, int size, byte[] resData) {
+    private boolean getHfcData(int addr, int size, byte[] resData, String name) {
         int res = mHfcConnection.controlTransfer(
                 USB_DIR_IN | USB_TYPE_VENDOR, //RequestType - 0xC0 (0x80 | 0x40 | 0x00 )
                 CMD_MEMORY_READ,                         //Request - 0x04
@@ -191,33 +207,33 @@ public class HubManager {
         );
         if (res >= 0) {
             if (DEBUG) {
-                Log.d(TAG, "controlTransfer success (" + res + "): " + bytesToHex(resData, size));
+                Log.d(TAG, "controlTransfer success ("+res+"): " + bytesToHex(resData, size) + " ("+name+")");
             }
             return true;
         }
-        Log.e(TAG, "controlTransfer error: res=" + res);
+        Log.e(TAG, "controlTransfer error: res=" + res + "("+name+")");
         return false;
     }
 
     private boolean updateHfcData() {
-        boolean res = getHfcData(PDPB_P1_THERMAL_PORT_STATUS, 2, mP1Buffs.mPortStatusBuff);
+        boolean res = getHfcData(PDPB_P1_THERMAL_PORT_STATUS, 2, mP1Buffs.mPortStatusBuff, "P1_THERMAL_PORT_STATUS");
         if (res) {
-            res = getHfcData(PDPB_P3_THERMAL_PORT_STATUS, 2, mP3Buffs.mPortStatusBuff);
+            res = getHfcData(PDPB_P3_THERMAL_PORT_STATUS, 2, mP3Buffs.mPortStatusBuff, "P3_THERMAL_PORT_STATUS");
         }
         if (res) {
-            res = getHfcData(PDPB_P1_PORT_PARAMS, 8, mP1Buffs.mPortParamsBuff);
+            res = getHfcData(PDPB_P1_PORT_PARAMS, 8, mP1Buffs.mPortParamsBuff, "P1_PORT_PARAMS");
         }
         if (res) {
-            res = getHfcData(PDPB_P3_PORT_PARAMS, 8, mP3Buffs.mPortParamsBuff);
+            res = getHfcData(PDPB_P3_PORT_PARAMS, 8, mP3Buffs.mPortParamsBuff, "P3_PORT_PARAMS");
         }
         if (res) {
-            res = getHfcData(PDPB_P1_PORT_POWER_ALLOCATION, 4, mP1Buffs.mPortPowerBuff);
+            res = getHfcData(PDPB_P1_PORT_POWER_ALLOCATION, 4, mP1Buffs.mPortPowerBuff, "P1_PORT_POWER_ALLOCATION");
         }
         if (res) {
-            res = getHfcData(PDPB_P3_PORT_POWER_ALLOCATION, 4, mP3Buffs.mPortPowerBuff);
+            res = getHfcData(PDPB_P3_PORT_POWER_ALLOCATION, 4, mP3Buffs.mPortPowerBuff, "P3_PORT_POWER_ALLOCATION");
         }
         if (res) {
-            res = getHfcData(PDPB_P1_PB_SYS_CONFIG, 4, mSysConfBuff);
+            res = getHfcData(PDPB_PB_SYS_CONFIG, 4, mSysConfBuff, "PB_SYS_CONFIG");
         }
 
         if (res) {
@@ -255,6 +271,15 @@ public class HubManager {
         return st;
     }
 
+    private String getRP_RD(byte b) {
+        switch (b) {
+            case 0x00: return "Default USB";
+            case 0x01: return "1.5A";
+            case 0x02: return "3.0A";
+            default: return "unknown";
+        }
+    }
+
     private void parseHfcData(byte[] sysConfBuff, PortBuffers p1, PortBuffers p2) {
         //ThermalStatus
         ThermalState ts1 = parseThermalHfcData(p1.mPortStatusBuff);
@@ -265,10 +290,16 @@ public class HubManager {
         boolean attached2 = ((p2.mPortParamsBuff[0] & 0x01) == 0x01);
         boolean orientation1 = ((p1.mPortParamsBuff[0] & 0x02) == 0x02);
         boolean orientation2 = ((p2.mPortParamsBuff[0] & 0x02) == 0x02);
+
+        byte rp_rd1 = (byte)((p1.mPortParamsBuff[0] & 0x0C) >> 2);
+        byte rp_rd2 = (byte)((p2.mPortParamsBuff[0] & 0x0C) >> 2);
+
         boolean negotiated1 = ((p1.mPortParamsBuff[0] & 0x10) == 0x10);
         boolean negotiated2 = ((p2.mPortParamsBuff[0] & 0x10) == 0x10);
         boolean cap_mismatch1 = ((p1.mPortParamsBuff[0] & 0x20) == 0x20);
         boolean cap_mismatch2 = ((p2.mPortParamsBuff[0] & 0x20) == 0x20);
+        boolean contract_operate1 = ((p1.mPortParamsBuff[7] & 0x40) == 0x40);
+        boolean contract_operate2 = ((p2.mPortParamsBuff[7] & 0x40) == 0x40);
 
         ByteBuffer bb1 = ByteBuffer.wrap(p1.mPortParamsBuff).order(ByteOrder.LITTLE_ENDIAN);
         ByteBuffer bb2 = ByteBuffer.wrap(p2.mPortParamsBuff).order(ByteOrder.LITTLE_ENDIAN);
@@ -276,8 +307,11 @@ public class HubManager {
         int negot_v_now1 = ((0xFFC0 & bb1.getShort(0)) >> 6); // 0.05V/50mV units
         int negot_v_now2 = ((0xFFC0 & bb2.getShort(0)) >> 6); // 0.05V/50mV units
         //I_NEGOTIATED (25:16 bits)
-        int negot_i_now1 = (0x03FF & bb1.getShort(2)); // 0.01V/10mA units
-        int negot_i_now2 = (0x03FF & bb2.getShort(2)); // 0.01V/10mA units
+        int negot_i_now1 = (0x03FF & bb1.getShort(2)); // 0.01A/10mA units
+        int negot_i_now2 = (0x03FF & bb2.getShort(2)); // 0.01A/10mA units
+        //V_OPERATIONAL (41:32 bits)
+        int operate_v_now1 = (0x03FF & bb1.getShort(4)); // 0.02V/20mV units
+        int operate_v_now2 = (0x03FF & bb2.getShort(4)); // 0.02V/20mV units
 
         //Max system power
         ByteBuffer sc = ByteBuffer.wrap(sysConfBuff).order(ByteOrder.LITTLE_ENDIAN);
@@ -300,28 +334,32 @@ public class HubManager {
          * reflect the true VBUS state as "negotiated" is a context of the power balancing algorithm
          * and not any explicit PD contract).
         */
+        float res_v1 = contract_operate1 ? operate_v_now1*VOLTS_OPERATE_K : negot_v_now1*VOLTS_K;
+        float res_i1 = negot_i_now1*AMPS_K;
         if (attached1 && !negotiated1) {
-            negot_v_now1 = (int)(5/VOLTS_K);
-            negot_i_now1 = (int)(3/AMPS_K);
+            res_v1 = DEFAULT_V;
+            res_i1 = DEFAULT_I;
         }
+        float res_v2 = contract_operate2 ? operate_v_now2*VOLTS_OPERATE_K : negot_v_now2*VOLTS_K;
+        float res_i2 = negot_i_now2*AMPS_K;
         if (attached2 && !negotiated2) {
-            negot_v_now2 = (int)(5/VOLTS_K);
-            negot_i_now2 = (int)(3/AMPS_K);
+            res_v2 = DEFAULT_V;
+            res_i2 = DEFAULT_I;
         }
 
         if (mListener!=null) {
             mListener.onPortStatus(1, attached1, negotiated1, orientation1, cap_mismatch1,
                     (float)(max_pwr1*PORT_WATTS_K),
-                    (float)(negot_v_now1*VOLTS_K),
-                    (float)(negot_i_now1*AMPS_K),
-                    (float)((negot_v_now1*VOLTS_K)*(negot_i_now1*AMPS_K)),
+                    res_v1,
+                    res_i1,
+                    (res_v1 * res_i1),
                     (float)(sys_pwr/SYS_WATTS_K),
                     ts1);
             mListener.onPortStatus(2, attached2, negotiated2, orientation2, cap_mismatch2,
                     (float)(max_pwr2*PORT_WATTS_K),
-                    (float)(negot_v_now2*VOLTS_K),
-                    (float)(negot_i_now2*AMPS_K),
-                    (float)((negot_v_now2*VOLTS_K)*(negot_i_now2*AMPS_K)),
+                    res_v2,
+                    res_i2,
+                    (res_v2 * res_i2),
                     (float)(sys_pwr/SYS_WATTS_K),
                     ts2);
         }
@@ -332,25 +370,35 @@ public class HubManager {
             Log.d(TAG, "----------------------------------------");
             Log.d(TAG, String.format("Port1: max_pwr=%f W", max_pwr1*PORT_WATTS_K));
             Log.d(TAG, String.format("Port1: pb_enabled=%s", pb_enabled1));
-            Log.d(TAG, String.format("Port1: voltage=%f", negot_v_now1*VOLTS_K));
-            Log.d(TAG, String.format("Port1: current=%f", negot_i_now1*AMPS_K));
-            Log.d(TAG, String.format("Port1: power=%f", (negot_v_now1*VOLTS_K) * (negot_i_now1*AMPS_K)));
+            Log.d(TAG, String.format("Port1: voltage_negot=%f", negot_v_now1*VOLTS_K));
+            Log.d(TAG, String.format("Port1: voltage_operate=%f", operate_v_now1*VOLTS_OPERATE_K));
+            Log.d(TAG, String.format("Port1: current_negot=%f", negot_i_now1*AMPS_K));
+            Log.d(TAG, String.format("Port1: volt_res=%f", res_v1));
+            Log.d(TAG, String.format("Port1: curr_res=%f", res_i1));
+            Log.d(TAG, String.format("Port1: power=%f", (res_v1 * res_i1) ));
             Log.d(TAG, String.format("Port1: attached=%s", attached1));
             Log.d(TAG, String.format("Port1: negotiated=%s", negotiated1));
+            Log.d(TAG, String.format("Port1: contract_operate=%s", contract_operate1));
             Log.d(TAG, String.format("Port1: orientation=%s", orientation1));
             Log.d(TAG, String.format("Port1: cap_mismatch=%s", cap_mismatch1));
+            Log.d(TAG, String.format("Port1: rp_rd=%s", getRP_RD(rp_rd1)));
             Log.d(TAG, String.format("Port1: ThermalState=%s", ts1));
             //Log Port2
             Log.d(TAG, "----------------------------------------");
             Log.d(TAG, String.format("Port3: max_pwr=%f W", max_pwr2*PORT_WATTS_K));
             Log.d(TAG, String.format("Port3: pb_enabled=%s", pb_enabled2));
-            Log.d(TAG, String.format("Port3: voltage=%f", negot_v_now2*VOLTS_K));
-            Log.d(TAG, String.format("Port3: current=%f", negot_i_now2*AMPS_K));
-            Log.d(TAG, String.format("Port3: power=%f", (negot_v_now2*VOLTS_K) * (negot_i_now2*AMPS_K)));
+            Log.d(TAG, String.format("Port3: voltage_negot=%f", negot_v_now2*VOLTS_K));
+            Log.d(TAG, String.format("Port3: voltage_operate=%f", operate_v_now2*VOLTS_OPERATE_K));
+            Log.d(TAG, String.format("Port3: current_negot=%f", negot_i_now2*AMPS_K));
+            Log.d(TAG, String.format("Port3: volt_res=%f", res_v2));
+            Log.d(TAG, String.format("Port3: curr_res=%f", res_i2));
+            Log.d(TAG, String.format("Port3: power=%f", (res_v2 * res_i2) ));
             Log.d(TAG, String.format("Port3: attached=%s", attached2));
             Log.d(TAG, String.format("Port3: negotiated=%s", negotiated2));
+            Log.d(TAG, String.format("Port3: contract_operate=%s", contract_operate2));
             Log.d(TAG, String.format("Port3: orientation=%s", orientation2));
             Log.d(TAG, String.format("Port3: cap_mismatch=%s", cap_mismatch2));
+            Log.d(TAG, String.format("Port3: rp_rd=%s", getRP_RD(rp_rd2)));
             Log.d(TAG, String.format("Port3: ThermalState=%s", ts2));
             Log.d(TAG, "----------------------------------------");
         }
@@ -398,8 +446,10 @@ public class HubManager {
         if (device!=null) {
             int vid = device.getVendorId();
             int pid = device.getProductId();
-            if (vid==HFC_VID && pid==HFC_PID) {
-                return true;
+            for (int a=0; a < mLookupTable.length; ++a) {
+                if (vid==mLookupTable[a].VID && pid==mLookupTable[a].PID) {
+                    return true;
+                }
             }
         }
         return false;

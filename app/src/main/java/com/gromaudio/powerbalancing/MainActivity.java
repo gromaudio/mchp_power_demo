@@ -24,6 +24,7 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     private static final boolean DEBUG = true;
 
     private static final float MAX_TOTAL_POWER = 100;
+    private static final float DEFAULT_MAX_PORT_POWER = 50;
 
     @BindView(R.id.textView)
     TextView mTitle;
@@ -43,6 +44,8 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     ProgressBar mPort2Progress;
     @BindView(R.id.port2_available_port_power)
     TextView mPort2AvailablePortPower;
+    @BindView(R.id.port2_max_power)
+    TextView mPort2MaxPortPower;
     @BindView(R.id.maximum_total_system_power)
     TextView mMaximumTotalSystemPower;
     @BindView(R.id.remaining_total_system_power)
@@ -63,6 +66,8 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     ConstraintLayout mPort1Connected;
     @BindView(R.id.port1_thermal_state)
     TextView mPort1ThermalState;
+    @BindView(R.id.port1_max_power)
+    TextView mPort1MaxPortPower;
 
     private ConnectionPowerState mPort1 = new ConnectionPowerState();
     private ConnectionPowerState mPort2 = new ConnectionPowerState();
@@ -128,8 +133,8 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     void init() {
         setThermalState(Port.PORT_1, ThermalState.NOT_IMPLEMENTED);
         setThermalState(Port.PORT_2, ThermalState.NOT_IMPLEMENTED);
-        setDisconnected(Port.PORT_1);
-        setDisconnected(Port.PORT_2);
+        setDisconnected(Port.PORT_1, DEFAULT_MAX_PORT_POWER);
+        setDisconnected(Port.PORT_2, DEFAULT_MAX_PORT_POWER);
 
         mMaximumTotalSystemPower.setText(getString(R.string.maximum_total_system_power, mMaxTotalPower));
         mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power, mMaxTotalPower));
@@ -143,10 +148,11 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         portThermalState.setText(thermalState.getTitle());
     }
 
-    void setDisconnected(Port port) {
+    void setDisconnected(Port port, float maxP) {
         boolean port1 = port == Port.PORT_1;
         ConnectionPowerState portState = port1 ? mPort1 : mPort2;
         portState.setConnected(false);
+        portState.setMaxP(maxP);
         View hide = port1 ? mPort1Connected : mPort2Connected;
         View show = port1 ? mPort1NoDeviceConnected : mPort2NoDeviceConnected;
         hide.setVisibility(View.INVISIBLE);
@@ -190,6 +196,8 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         portProgress.setProgress((int) w);
         TextView powerRemaining = port1 ? mPort1AvailablePortPower : mPort2AvailablePortPower;
         powerRemaining.setText(getString(R.string.w, maxP - w));
+        TextView powerMax = port1 ? mPort1MaxPortPower : mPort2MaxPortPower;
+        powerMax.setText( String.format("%.1f", maxP) );
     }
 
     @OnClick(R.id.logo)
@@ -202,12 +210,12 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         Random random = new Random();
         boolean connected = random.nextBoolean();
         if (!connected) {
-            setDisconnected(port);
+            setDisconnected(port, DEFAULT_MAX_PORT_POWER);
             return;
         }
 
-        setConnected(port, randomFloatInRange(0, 60), randomFloatInRange(0, 12),
-                randomFloatInRange(0, 5), 60);
+        setConnected(port, randomFloatInRange(0, DEFAULT_MAX_PORT_POWER), randomFloatInRange(0, 10),
+                randomFloatInRange(0, 5), DEFAULT_MAX_PORT_POWER);
         setThermalState(port, ThermalState.class.getEnumConstants()
                 [random.nextInt(ThermalState.class.getEnumConstants().length)]);
 
@@ -239,7 +247,7 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
             setConnected(p, power, voltage, current, maxpower);
             setThermalState(p, ts);
         } else {
-            setDisconnected(p);
+            setDisconnected(p, maxpower);
             setThermalState(p, ts);
         }
         updateRemainingPower();
@@ -249,8 +257,8 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     public void onHubStatus(int hubStatus) {
         if (hubStatus == HubManager.HUB_STATUS_DISCONNECTED) {
             mTitle.setBackgroundColor(Color.parseColor("#FF000000")); //
-            setDisconnected(Port.PORT_1);
-            setDisconnected(Port.PORT_2);
+            setDisconnected(Port.PORT_1, DEFAULT_MAX_PORT_POWER);
+            setDisconnected(Port.PORT_2, DEFAULT_MAX_PORT_POWER);
             setThermalState(Port.PORT_1, ThermalState.NOT_IMPLEMENTED);
             setThermalState(Port.PORT_2, ThermalState.NOT_IMPLEMENTED);
             updateRemainingPower();
