@@ -173,25 +173,17 @@
                 android:textAppearance="@style/TextAppearance.AppCompat.Medium"
                 android:textColor="@android:color/white"
                 tools:text="60W" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/available_port_power"
-                android:textAlignment="center"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-                android:textSize="12sp" />
         </LinearLayout>
     </FrameLayout>
 
 
     <TextView
-        android:id="@+id/port2_max_power"
         style="@style/TextAppearance.AppCompat.Subhead"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="2dp"
-        android:text="60W"
+        android:text="@string/available_port_power"
+        android:textAlignment="center"
         android:textColor="@android:color/white"
         app:layout_constraintBottom_toTopOf="@+id/frameLayout4"
         app:layout_constraintEnd_toEndOf="@+id/frameLayout4"
@@ -343,14 +335,6 @@
                 android:textAlignment="center"
                 android:textAppearance="@style/TextAppearance.AppCompat.Medium"
                 android:textColor="@android:color/white" />
-
-            <TextView
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:text="@string/available_port_power"
-                android:textAlignment="center"
-                android:textAppearance="@style/TextAppearance.AppCompat.Body1"
-                android:textSize="12sp" />
         </LinearLayout>
     </FrameLayout>
 
@@ -465,12 +449,12 @@
         tools:text="Thermal shutDown" />
 
     <TextView
-        android:id="@+id/port1_max_power"
         style="@style/TextAppearance.AppCompat.Subhead"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
         android:layout_marginBottom="2dp"
-        android:text="60W"
+        android:text="@string/available_port_power"
+        android:textAlignment="center"
         android:textColor="@android:color/white"
         app:layout_constraintBottom_toTopOf="@+id/frameLayout44"
         app:layout_constraintEnd_toEndOf="@+id/frameLayout44"

@@ -44,8 +44,6 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     ProgressBar mPort2Progress;
     @BindView(R.id.port2_available_port_power)
     TextView mPort2AvailablePortPower;
-    @BindView(R.id.port2_max_power)
-    TextView mPort2MaxPortPower;
     @BindView(R.id.maximum_total_system_power)
     TextView mMaximumTotalSystemPower;
     @BindView(R.id.remaining_total_system_power)
@@ -66,12 +64,13 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     ConstraintLayout mPort1Connected;
     @BindView(R.id.port1_thermal_state)
     TextView mPort1ThermalState;
-    @BindView(R.id.port1_max_power)
-    TextView mPort1MaxPortPower;
 
     private ConnectionPowerState mPort1 = new ConnectionPowerState();
     private ConnectionPowerState mPort2 = new ConnectionPowerState();
     private float mMaxTotalPower = MAX_TOTAL_POWER;
+    private float mRemainingTotalPower = MAX_TOTAL_POWER;
+
+    private boolean mRandomDebugMode = false;
 
     private HubManager mHubManager;
 
@@ -137,7 +136,7 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         setDisconnected(Port.PORT_2, DEFAULT_MAX_PORT_POWER);
 
         mMaximumTotalSystemPower.setText(getString(R.string.maximum_total_system_power, mMaxTotalPower));
-        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power, mMaxTotalPower));
+        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power, mRemainingTotalPower));
 
         mHubManager = new HubManager(getBaseContext(), this);
     }
@@ -153,11 +152,14 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         ConnectionPowerState portState = port1 ? mPort1 : mPort2;
         portState.setConnected(false);
         portState.setMaxP(maxP);
+
+        updateRemainingPower();
+
         View hide = port1 ? mPort1Connected : mPort2Connected;
         View show = port1 ? mPort1NoDeviceConnected : mPort2NoDeviceConnected;
         hide.setVisibility(View.INVISIBLE);
         show.setVisibility(View.VISIBLE);
-        setProgress(port, 0, portState.getMaxP());
+        setProgress(port, 0, (maxP < mRemainingTotalPower ? maxP : mRemainingTotalPower) );
     }
 
     void setConnected(Port port, float w, float v, float a, float maxP) {
@@ -176,6 +178,8 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         portState.setMaxP(maxP);
         portState.setConnected(true);
 
+        updateRemainingPower();
+
         portW.setText(getString(R.string.w, w));
         portVA.setText(getString(R.string.va, v, a));
 
@@ -186,22 +190,22 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
             speed = Speed.AVERAGE;
 
         Glide.with(this).asGif().load(port1 ? speed.getLeft() : speed.getRight()).into(icon);
-        setProgress(port, w, portState.getMaxP());
+        float remainingTotal = mRemainingTotalPower + w;
+        setProgress(port, w, (maxP < remainingTotal ? maxP : remainingTotal));
     }
 
     void setProgress(Port port, float w, float maxP) {
         boolean port1 = port == Port.PORT_1;
         ProgressBar portProgress = port1 ? mPort1Progress : mPort2Progress;
-        portProgress.setMax((int)maxP);
+        portProgress.setMax((int)maxP); //available port power
         portProgress.setProgress((int) w);
         TextView powerRemaining = port1 ? mPort1AvailablePortPower : mPort2AvailablePortPower;
         powerRemaining.setText(getString(R.string.w, maxP - w));
-        TextView powerMax = port1 ? mPort1MaxPortPower : mPort2MaxPortPower;
-        powerMax.setText( String.format("%.1f", maxP) );
     }
 
     @OnClick(R.id.logo)
     void onLogoClick() {
+        mRandomDebugMode = true;
         setRandomData(Port.PORT_1);
         setRandomData(Port.PORT_2);
     }
@@ -214,14 +218,11 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
             return;
         }
 
-        setConnected(port, randomFloatInRange(0, DEFAULT_MAX_PORT_POWER), randomFloatInRange(0, 10),
-                randomFloatInRange(0, 5), DEFAULT_MAX_PORT_POWER);
+        float v = randomFloatInRange(0, 10);
+        float a = randomFloatInRange(0, 5);
+        setConnected(port, (v*a), v, a, DEFAULT_MAX_PORT_POWER);
         setThermalState(port, ThermalState.class.getEnumConstants()
                 [random.nextInt(ThermalState.class.getEnumConstants().length)]);
-
-        mMaximumTotalSystemPower.setText(getString(R.string.maximum_total_system_power, mMaxTotalPower));
-        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power,
-                mMaxTotalPower - mPort1.getW() - mPort2.getW()));
     }
 
     float randomFloatInRange(float min, float max) {
@@ -229,9 +230,9 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
     }
 
     private void updateRemainingPower() {
+        mRemainingTotalPower = mMaxTotalPower - (mPort1.isConnected()?mPort1.getW():0) - (mPort2.isConnected()?mPort2.getW():0);
         mMaximumTotalSystemPower.setText(getString(R.string.maximum_total_system_power, mMaxTotalPower));
-        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power,
-                mMaxTotalPower - (mPort1.isConnected()?mPort1.getW():0) - (mPort2.isConnected()?mPort2.getW():0) ));
+        mRemainingTotalSystemPower.setText(getString(R.string.remaining_total_system_power, mRemainingTotalPower));
     }
 
     //IHubListener
@@ -241,6 +242,7 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
         if (DEBUG) {
             Log.d(TAG, "onPortStatus(" + port + ")");
         }
+        mRandomDebugMode = false;
         mMaxTotalPower = sys_pwr;
         Port p = (port==1) ? Port.PORT_1 : Port.PORT_2;
         if (attached) {
@@ -250,18 +252,19 @@ public class MainActivity extends AppCompatActivity implements HubManager.IHubLi
             setDisconnected(p, maxpower);
             setThermalState(p, ts);
         }
-        updateRemainingPower();
     }
 
     @Override
     public void onHubStatus(int hubStatus) {
+        if (mRandomDebugMode) {
+            return;
+        }
         if (hubStatus == HubManager.HUB_STATUS_DISCONNECTED) {
             mTitle.setBackgroundColor(Color.parseColor("#FF000000")); //
             setDisconnected(Port.PORT_1, DEFAULT_MAX_PORT_POWER);
             setDisconnected(Port.PORT_2, DEFAULT_MAX_PORT_POWER);
             setThermalState(Port.PORT_1, ThermalState.NOT_IMPLEMENTED);
             setThermalState(Port.PORT_2, ThermalState.NOT_IMPLEMENTED);
-            updateRemainingPower();
         } else if (hubStatus == HubManager.HUB_STATUS_CONNECTED) {
             mTitle.setBackgroundColor(Color.parseColor("#00FF00")); //green
         } else if (hubStatus == HubManager.HUB_STATUS_ERRORS) {

@@ -42,9 +42,9 @@ public class HubManager {
                                      new HubId(0x046d,0xc534), //just for debugging
                                    };
 
+    //1 Byte (THERMAL_STATE) where bits 1:0 are for port 1 and 5:4 are for port 3
+    static final int PDPB_THERMAL_PORT_STATUS = 0xBF81_A504;
 
-    static final int PDPB_P1_THERMAL_PORT_STATUS = 0xBFD9_7444; //2 Bytes (THERMAL_STATE)
-    static final int PDPB_P3_THERMAL_PORT_STATUS = 0xBFD9_74DC; //2 Bytes (THERMAL_STATE)
     static final int PDPB_P1_PORT_PARAMS = 0xBFD9_7BC0; // 00=xx (Offset = 0x04) 8 Bytes (7BC0)
     static final int PDPB_P3_PORT_PARAMS = 0xBFD9_7D74; // 00=xx (Offset = 0x04) 8 Bytes (7D74)
     static final int PDPB_P1_PORT_POWER_ALLOCATION = 0xBFD9_7E28; //4 Bytes (PB enabled/disabled, port MAX power)
@@ -52,7 +52,6 @@ public class HubManager {
     static final int PDPB_PB_SYS_CONFIG = 0xBFD9_7DE4; //4 Bytes (Total system power)
 
     class PortBuffers {
-        byte[] mPortStatusBuff = new byte[32];
         byte[] mPortParamsBuff = new byte[32];
         byte[] mPortPowerBuff = new byte[32];
     };
@@ -85,6 +84,7 @@ public class HubManager {
     private PortBuffers mP1Buffs = new PortBuffers();
     private PortBuffers mP3Buffs = new PortBuffers();
     private byte[] mSysConfBuff = new byte[32];
+    private byte[] mThermalStateBuff = new byte[32];
 
     private int mControlTransferAttempts = CONTROL_TRANSFER_ATTEMPTS;
 
@@ -216,10 +216,7 @@ public class HubManager {
     }
 
     private boolean updateHfcData() {
-        boolean res = getHfcData(PDPB_P1_THERMAL_PORT_STATUS, 2, mP1Buffs.mPortStatusBuff, "P1_THERMAL_PORT_STATUS");
-        if (res) {
-            res = getHfcData(PDPB_P3_THERMAL_PORT_STATUS, 2, mP3Buffs.mPortStatusBuff, "P3_THERMAL_PORT_STATUS");
-        }
+        boolean res = getHfcData(PDPB_THERMAL_PORT_STATUS, 2, mThermalStateBuff, "THERMAL_PORT_STATUS");
         if (res) {
             res = getHfcData(PDPB_P1_PORT_PARAMS, 8, mP1Buffs.mPortParamsBuff, "P1_PORT_PARAMS");
         }
@@ -255,9 +252,25 @@ public class HubManager {
         }
     }
 
-    private ThermalState parseThermalHfcData(byte[] data) {
+    private ThermalState parseThermalHfcData1(byte[] data) {
         ThermalState st = ThermalState.NOT_IMPLEMENTED;
         switch (data[0]&0x03) {
+            case 0x00:
+                st = ThermalState.NORMAL;
+                break;
+            case 0x01:
+                st = ThermalState.WARNING;
+                break;
+            case 0x02:
+                st = ThermalState.SHUTDOWN;
+                break;
+        }
+        return st;
+    }
+
+    private ThermalState parseThermalHfcData2(byte[] data) {
+        ThermalState st = ThermalState.NOT_IMPLEMENTED;
+        switch (( (data[0]&0xFF) >> 4) & 0x03) {
             case 0x00:
                 st = ThermalState.NORMAL;
                 break;
@@ -282,8 +295,8 @@ public class HubManager {
 
     private void parseHfcData(byte[] sysConfBuff, PortBuffers p1, PortBuffers p2) {
         //ThermalStatus
-        ThermalState ts1 = parseThermalHfcData(p1.mPortStatusBuff);
-        ThermalState ts2 = parseThermalHfcData(p2.mPortStatusBuff);
+        ThermalState ts1 = parseThermalHfcData1(mThermalStateBuff);
+        ThermalState ts2 = parseThermalHfcData2(mThermalStateBuff);
 
         //parse params
         boolean attached1 = ((p1.mPortParamsBuff[0] & 0x01) == 0x01);
