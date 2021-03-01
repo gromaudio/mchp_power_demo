@@ -2,7 +2,7 @@
 
 LOCAL_PATH := $(call my-dir)
 
-PB_ASSEMBLE_TYPE := assembleRelease
+PB_ASSEMBLE_TYPE := assembleDebug
 PB_LOCAL_PATH_ := $(LOCAL_PATH)
 PB_PACKAGE_NAME := PowerBalancing
 PB_APK_NAME := $(PB_PACKAGE_NAME).apk
@@ -36,7 +36,7 @@ endif
 # Build with gradle
 $(PB_APK_PATH):
 	@echo "Building PowerBalancing with Gradle ..."
-	export ANDROID_HOME=$(ANDROID_BUILD_TOP)/android_gromaudio/packages/apps/DashLinQ/android_sdk; \
+	export ANDROID_HOME=$(ANDROID_BUILD_TOP)/packages/apps/PowerBalancing/android_sdk; \
 	export JAVA_HOME=$(PB_JAVA_GRADLE); \
 	export ANDROID_BUILD_TOP=$(ANDROID_BUILD_TOP); \
 	$(PB_LOCAL_PATH_)/gradlew $(PB_ASSEMBLE_TYPE) -p $(PB_LOCAL_PATH_)/;
@@ -48,7 +48,7 @@ $(PB_APK_PATH):
 ifeq ($(wildcard $(PB_APK_PATH)),)
   #1. Build PowerBalancing with Gradle system to $(LOCAL_PATH)/app/apk/
   $(info Prebuild PowerBalancing with Gradle (first time) ...)
-  $(info $(shell (export ANDROID_HOME=$(ANDROID_BUILD_TOP)/android_gromaudio/packages/apps/DashLinQ/android_sdk; \
+  $(info $(shell (export ANDROID_HOME=$(ANDROID_BUILD_TOP)/packages/apps/PowerBalancing/android_sdk; \
 	        export JAVA_HOME=$(PB_JAVA_GRADLE); \
 		export ANDROID_BUILD_TOP=$(ANDROID_BUILD_TOP); \
 	        $(LOCAL_PATH)/gradlew $(PB_ASSEMBLE_TYPE) -p $(PB_LOCAL_PATH_)/; \
@@ -66,19 +66,19 @@ all_modules: $(PB_APK_PATH)
 include $(CLEAR_VARS)
 LOCAL_MODULE_TAGS := optional
 LOCAL_MODULE := $(PB_PACKAGE_NAME)
-##LOCAL_CERTIFICATE := PRESIGNED
-LOCAL_CERTIFICATE := platform
+LOCAL_CERTIFICATE := PRESIGNED
+#LOCAL_CERTIFICATE := platform
 #LOCAL_REQUIRED_MODULES := $(SO_LIBS)
 LOCAL_SRC_FILES := $(PB_APK_PATH_REL)
 LOCAL_MODULE_CLASS := APPS
 LOCAL_MODULE_SUFFIX := $(COMMON_ANDROID_PACKAGE_SUFFIX)
 
 #//VLine-- 8.1
-ifeq ($(PRODUCT_ANDROID_VERSION),8.1)
-  LOCAL_PRIVILEGED_MODULE := false
-else ifeq ($(PRODUCT_ANDROID_VERSION),7)
-  LOCAL_PRIVILEGED_MODULE := false
-endif
+#ifeq ($(PRODUCT_ANDROID_VERSION),8.1)
+#  LOCAL_PRIVILEGED_MODULE := false
+#else ifeq ($(PRODUCT_ANDROID_VERSION),7)
+#  LOCAL_PRIVILEGED_MODULE := false
+#endif
 
 #LOCAL_DEX_PREOPT := false
 
